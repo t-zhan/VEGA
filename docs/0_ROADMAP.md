@@ -1,4 +1,4 @@
-# 开发者待办事项
+# 技术路线
 
 > **VEGA = VLA Embedding Geometry of Action**
 > 
