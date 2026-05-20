@@ -1,0 +1,6 @@
+[submodule "third_party/OpenDriveVLA"]
+	path = third_party/OpenDriveVLA
+	url = https://github.com/DriveVLA/OpenDriveVLA.git
+[submodule "third_party/AutoVLA"]
+	path = third_party/AutoVLA
+	url = https://github.com/ucla-mobility/AutoVLA.git
