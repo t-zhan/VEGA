@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 AUTOVLA_ROOT="${REPO_ROOT}/third_party/AutoVLA"
 CONFIG="${AUTOVLA_ROOT}/config/eval/qwen2.5-vl-3B-nusc-eval-local.yaml"
 CHECKPOINT="${AUTOVLA_ROOT}/data/autovla_base.ckpt"

@@ -20,13 +20,14 @@
 ## 阶段二：基础设施——提取 Action 表示
 
 ### 2.1 环境搭建
-- [ ] 搭建 `autovla` conda 环境，验证 Qwen2.5-VL-3B 推理流水线可运行
+- [x] 搭建 `autovla` conda 环境，验证 Qwen2.5-VL-3B 推理流水线可运行
 - [x] 搭建 `drivevla` conda 环境，完成 mmcv/mmdet3d 源码编译，验证 nuScenes 推理可运行
-- [ ] 编写 `scripts/setup_env_autovla.sh`（conda 环境 + navsim 安装）
+- [x] 编写 `scripts/setup_env_autovla.sh`（conda 环境 + navsim 安装）
 - [x] 编写 `scripts/setup_env_opendrivevla.sh`（conda 环境 + 编译步骤）
 
-> **OpenDriveVLA-0.5B nuScenes val 基线结果（4×RTX 3090，2026-05-22）**
->
+<details>
+<summary>OpenDriveVLA-0.5B nuScenes val 基线结果（4×RTX 3090，2026-05-22）</summary>
+
 > | 评估标准 | L2@1s | L2@2s | L2@3s | L2 Avg | Col@1s | Col@2s | Col@3s | Col Avg |
 > |---------|-------|-------|-------|--------|--------|--------|--------|---------|
 > | UniAD   | 0.21  | 0.60  | 1.22  | 0.68   | 0.00%  | 0.13%  | 0.53%  | 0.22%   |
@@ -34,7 +35,10 @@
 >
 > 共处理 6019 个样本，推理耗时约 50 分钟。
 
+</details>
+
 ### 2.2 AutoVLA Action 表示提取
+
 - [ ] Hook Qwen2.5-VL 最后几层 hidden states，在生成 `<action_i>` token 时保存
   - 目标：得到每个 action token 对应的上下文表示向量 `h ∈ R^d`
   - 实现：`src/extraction/autovla_hidden_extractor.py`
@@ -42,6 +46,58 @@
   - codebook shape: `(n_bins, 6, 4, 2)`，需 flatten 为 `(n_bins, D_traj)` 后分析
   - 实现：`src/extraction/autovla_codebook_loader.py`
 - [ ] 批量推理 nuPlan/nuScenes 验证集，保存 (scene_id, action_token_id, hidden_state) 三元组
+
+<details>
+<summary>Action Token 的初始化与训练机制</summary>
+
+**Step 1 — 注册 token**，`action_tokenizer.py:48`
+```python
+tokenizer.add_tokens([f'<action_{i}>' for i in range(action_len)], special_tokens=False)
+```
+
+**Step 2 — 扩展 embedding 矩阵**，`autovla.py:488`
+```python
+self.vlm.resize_token_embeddings(len(self.processor.tokenizer))
+```
+
+**Step 3 — 初始化新行**，`modeling_utils.py:2460`
+```python
+def _init_added_embeddings_weights_with_mean(
+    self, old_embeddings, new_embeddings, old_embedding_dim, old_num_tokens, added_num_tokens
+):
+```
+算法：以原始词表的均值和协方差构造多元正态分布，采样 2048 个新向量：
+```python
+mean_embeddings = torch.mean(old_embeddings_weight, axis=0)
+covariance = old_centered_embeddings.T @ old_centered_embeddings / old_num_tokens
+distribution = MultivariateNormal(mean_embeddings, covariance_matrix=epsilon * covariance)  # ε=1e-9
+new_embeddings.weight.data[-added_num_tokens:, :] = distribution.sample((added_num_tokens,))
+```
+协方差乘以 `1e-9`，使新 token 紧密聚集在质心附近，与原始 token 区分开。
+
+**Step 4 — 加权 loss 反传**，`autovla.py:325`
+```python
+def training_step(self, batch, batch_idx):
+```
+关键片段（L348-361）：
+```python
+action_mask = (labels_flat >= self.autovla.action_start_id)
+ce_loss_all = F.cross_entropy(logits_flat, labels_flat, reduction='none')
+action_loss = ce_loss_all[action_mask]
+if action_loss.numel() > 0:
+    action_loss = action_loss.mean()
+if hascot[0] == True:
+    loss = loss * 40
+    loss = loss + action_loss
+```
+`loss.backward()` 后，只有本批次出现的 token 行得到梯度更新，其余行梯度为零。
+
+> **关键背景**
+> - **Weight tying**：`_tied_weights_keys = ["lm_head.weight"]`（`modeling_qwen2_5_vl.py:1513`）→ `lm_head.weight` 与 `embed_tokens.weight` 是同一张量
+> - **Codebook**：`agent_vocab.pkl` 中 `(2048, 6, 4, 2)` = 2048 codes × 6 timesteps × 4 bbox 顶点 × (x,y)
+> - **action_start_id = 151665**，之后的 2048 个 id 对应 `<action_0>` … `<action_2047>`
+
+</details>
 
 ### 2.3 OpenDriveVLA Action 表示提取
 - [ ] Hook LLaVA backbone 最后隐层，在输出轨迹坐标 token 时保存隐向量

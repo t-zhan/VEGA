@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 AUTOVLA_ROOT="${REPO_ROOT}/third_party/AutoVLA"
 NUSCENES_SRC="/home/autodrive/Projects/PublicDatasets/NuScenes"
 DATA_DIR="${AUTOVLA_ROOT}/data"

@@ -5,7 +5,7 @@ ENV_NAME="autovla"
 CUDA_VERSION="${CUDA_VERSION:-12.1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 AUTOVLA_ROOT="${REPO_ROOT}/third_party/AutoVLA"
 
 if [[ -z "${CUDA_HOME:-}" ]]; then

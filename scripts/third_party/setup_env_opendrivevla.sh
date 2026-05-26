@@ -38,7 +38,7 @@ echo "[INFO] CUDA_HOME=${CUDA_HOME}"
 
 # ---------- 路径 ----------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 OPENDRIVEVLA_ROOT="${REPO_ROOT}/third_party/OpenDriveVLA"
 
 # ---------- conda init ----------
