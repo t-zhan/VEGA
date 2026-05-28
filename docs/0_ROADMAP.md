@@ -14,30 +14,28 @@
 - [x] 配置 git submodule（AutoVLA、OpenDriveVLA）
 - [x] 配置 `.gitignore`
 - [x] 生成中文 README 与 docs/ 文档框架
+- [x] 搭建 `autovla` conda 环境，验证 Qwen2.5-VL-3B 推理流水线可运行
+  - 编写 `scripts/autovla/setup_env_autovla.sh`（conda 环境 + navsim 安装）
+- [x] 搭建 `drivevla` conda 环境，完成 mmcv/mmdet3d 源码编译，验证 nuScenes 推理可运行
+  - 编写 `scripts/opendrivevla/setup_env_opendrivevla.sh`（conda 环境 + 编译步骤）
+
+  <details>
+  <summary>OpenDriveVLA-0.5B nuScenes val 基线结果（4×RTX 3090，2026-05-22）</summary>
+
+  > | 评估标准 | L2@1s | L2@2s | L2@3s | L2 Avg | Col@1s | Col@2s | Col@3s | Col Avg |
+  > |---------|-------|-------|-------|--------|--------|--------|--------|---------|
+  > | UniAD   | 0.21  | 0.60  | 1.22  | 0.68   | 0.00%  | 0.13%  | 0.53%  | 0.22%   |
+  > | STP-3   | 0.15  | 0.32  | 0.57  | 0.35   | 0.01%  | 0.06%  | 0.18%  | 0.08%   |
+  >
+  > 共处理 6019 个样本，推理耗时约 50 分钟。
+
+  </details>
 
 ---
 
 ## 阶段二：基础设施——提取 Action 表示
 
-### 2.1 环境搭建
-- [x] 搭建 `autovla` conda 环境，验证 Qwen2.5-VL-3B 推理流水线可运行
-- [x] 搭建 `drivevla` conda 环境，完成 mmcv/mmdet3d 源码编译，验证 nuScenes 推理可运行
-- [x] 编写 `scripts/autovla/setup_env_autovla.sh`（conda 环境 + navsim 安装）
-- [x] 编写 `scripts/opendrivevla/setup_env_opendrivevla.sh`（conda 环境 + 编译步骤）
-
-<details>
-<summary>OpenDriveVLA-0.5B nuScenes val 基线结果（4×RTX 3090，2026-05-22）</summary>
-
-> | 评估标准 | L2@1s | L2@2s | L2@3s | L2 Avg | Col@1s | Col@2s | Col@3s | Col Avg |
-> |---------|-------|-------|-------|--------|--------|--------|--------|---------|
-> | UniAD   | 0.21  | 0.60  | 1.22  | 0.68   | 0.00%  | 0.13%  | 0.53%  | 0.22%   |
-> | STP-3   | 0.15  | 0.32  | 0.57  | 0.35   | 0.01%  | 0.06%  | 0.18%  | 0.08%   |
->
-> 共处理 6019 个样本，推理耗时约 50 分钟。
-
-</details>
-
-### 2.2 AutoVLA Action 表示提取
+### 2.1 AutoVLA Action 表示提取
 
 - [x] 提取所有 action token 的静态 embedding（`embed_tokens.weight` 行向量）
   - 由于 weight tying，该向量同时也是 `lm_head` 的输出方向
@@ -113,7 +111,7 @@
 
   </details>
 
-### 2.3 OpenDriveVLA Action 表示提取
+### 2.2 OpenDriveVLA Action 表示提取
 - [ ] Hook LLaVA backbone 最后隐层，在输出轨迹坐标 token 时保存隐向量
   - 实现：`src/extraction/opendrivevla/hidden_extractor.py`
 - [ ] 提取预测轨迹坐标（`pred_trajs_dict.json`），构建 (scene_id, traj_coords, hidden_state) 三元组
