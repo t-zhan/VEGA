@@ -45,7 +45,7 @@ def extract_hidden(
     dataloader: DataLoader,
     action_start_id: int = 151665,
     device: str = "cuda",
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray]:
     """Extract last-layer hidden states at action token positions via teacher forcing.
 
     Calls vlm(**inputs, output_hidden_states=True) directly, bypassing
@@ -59,21 +59,17 @@ def extract_hidden(
         device: Device to run inference on.
 
     Returns:
-        token_ids  : ndarray (N,)             — action token id for each extracted vector
-        hidden_vecs: ndarray (N, hidden_dim)  — last-layer hidden state at that position
-        sample_idx : ndarray (N,)             — index of the sample in the dataloader
+        token_ids  : ndarray (S, T)             — action token ids per sample
+        hidden_vecs: ndarray (S, T, hidden_dim) — last-layer hidden states per sample
     """
     vlm = vlm.to(device)
     vlm.eval()
 
     all_token_ids: list[np.ndarray] = []
     all_hidden: list[np.ndarray] = []
-    all_sample_idx: list[np.ndarray] = []
 
-    global_sample = 0
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Extracting hidden states"):
-            # Move tensors to device; skip non-tensor fields
             inputs = {
                 k: v.to(device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()
@@ -86,27 +82,14 @@ def extract_hidden(
 
             # Identify action token positions from ground-truth labels
             action_mask = labels >= action_start_id  # (B, T)
+            B, D = labels.shape[0], last_hidden.shape[-1]
+            T = action_mask.sum(dim=1)[0].item()  # tokens per sample (fixed)
 
-            token_ids = labels[action_mask].cpu().numpy()           # (N_batch,)
-            hidden_vecs = last_hidden[action_mask].float().cpu().numpy()  # (N_batch, D)
-
-            batch_size = labels.shape[0]
-            # Expand sample index per action token position
-            sample_indices = (
-                torch.arange(batch_size, device=device)
-                .unsqueeze(1)
-                .expand_as(labels)
-            )
-            sample_idx = (sample_indices[action_mask] + global_sample).cpu().numpy()
-
-            all_token_ids.append(token_ids)
-            all_hidden.append(hidden_vecs)
-            all_sample_idx.append(sample_idx)
-
-            global_sample += batch_size
+            # (B, T) and (B, T, D) — keep sample dimension intact
+            all_token_ids.append(labels[action_mask].view(B, T).cpu().numpy())
+            all_hidden.append(last_hidden[action_mask].view(B, T, D).float().cpu().numpy())
 
     return (
-        np.concatenate(all_token_ids),
-        np.concatenate(all_hidden),
-        np.concatenate(all_sample_idx),
+        np.concatenate(all_token_ids, axis=0),   # (S, T)
+        np.concatenate(all_hidden, axis=0),       # (S, T, D)
     )
