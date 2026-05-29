@@ -116,6 +116,7 @@ rm -rf "${_WMO_DIR}"
 pip install "protobuf==4.25.3"
 
 pip install "numpy<2"
+pip install "h5py>=3.0"
 
 echo ""
 echo "[5/5] Checking Qwen2.5-VL-3B-Instruct model..."

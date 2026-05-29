@@ -40,7 +40,7 @@ def load_autovla(config_path: str, checkpoint_path: str, device: str = "cuda") -
 
     model = AutoVLA(config, inference=True, device=device)
 
-    ckpt = torch.load(checkpoint_path, map_location="cpu")
+    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = ckpt["state_dict"]
     # Lightning wraps the model under "autovla." prefix in SFTAutoVLA
     state_dict = {

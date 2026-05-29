@@ -25,7 +25,25 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.colors import Normalize
 from matplotlib import colormaps
+from matplotlib.patches import FancyArrowPatch
+import matplotlib.legend_handler as lh
 import numpy as np
+
+
+class _HandlerAnnotateArrow(lh.HandlerBase):
+    """Render a -|> arrow (matching ax.annotate style) inside the legend box."""
+    def create_artists(self, legend, orig_handle, xdescent, ydescent,
+                       width, height, fontsize, trans):
+        arrow = FancyArrowPatch(
+            posA=(xdescent, height / 2),
+            posB=(xdescent + width, height / 2),
+            arrowstyle="-|>",
+            color="red",
+            lw=1.5,
+            mutation_scale=8,
+            transform=trans,
+        )
+        return [arrow]
 
 
 # ── speed thresholds (6-step endpoint displacement, metres) ──────────────────
@@ -42,6 +60,9 @@ AGENT_ORDER   = ["veh", "ped", "cyc"]
 
 # colour maps per agent row
 CMAPS = {"veh": "Blues", "ped": "Greens", "cyc": "Oranges"}
+
+
+ACTION_START_ID = 151665   # offset between codebook index and actual token id
 
 
 def select_entry(cb: np.ndarray, tier: str, thresholds: tuple, rng: np.random.Generator) -> int:
@@ -99,7 +120,7 @@ def main():
     tiers = ["high", "mid", "low"]
 
     fig, axes = plt.subplots(3, 3, figsize=(11, 10),
-                             gridspec_kw={"hspace": 0.30, "wspace": 0.28})
+                             gridspec_kw={"hspace": 0.45, "wspace": 0.42})
     fig.suptitle("AutoVLA Codebook BEV — agent_vocab.pkl", fontsize=14, fontweight="bold", y=1.02)
 
     entry_indices = []   # list[list[int]], shape (3, 3) — row-major (agent × tier)
@@ -117,18 +138,26 @@ def main():
 
             draw_entry(ax, cb[idx], cmap)
 
+            # arrow from origin to last-step center; red star at destination
+            last_center = cb[idx, -1].mean(axis=0)   # (2,) mean of 4 corners at t=6
+            ax.annotate("", xy=(last_center[0], last_center[1]), xytext=(0, 0),
+                        arrowprops=dict(arrowstyle="-|>", color="red",
+                                        lw=1.5, mutation_scale=14), zorder=9)
+            ax.scatter([last_center[0]], [last_center[1]],
+                       marker="*", s=80, color="red", zorder=10)
+
             # adjustable="datalim" keeps every axes box the same physical size;
             # only the visible data range is adjusted to maintain equal aspect.
             ax.set_aspect("equal", adjustable="datalim")
             ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.5)
             ax.axhline(0, color="gray", linewidth=0.5, linestyle=":")
             ax.axvline(0, color="gray", linewidth=0.5, linestyle=":")
-            ax.scatter([0], [0], marker="*", s=60, color="red", zorder=10)
-            ax.tick_params(labelsize=6)
+            ax.tick_params(labelsize=12)
 
-            # entry number as x-axis label — same height across all subplots
-            ax.set_xlabel(f"entry[{idx}]", fontsize=8, color="#444444", labelpad=3)
-            ax.set_ylabel("")
+            # token id below subplot (combined with x-axis label); y axis label
+            ax.set_title("")
+            ax.set_xlabel(f"x (m)\ntoken[{ACTION_START_ID + idx}]", fontsize=14, color="#444444", labelpad=3)
+            ax.set_ylabel("y (m)", fontsize=14, color="#444444", labelpad=0)
 
         entry_indices.append(row_indices)
 
@@ -140,14 +169,18 @@ def main():
         plt.Line2D([0], [0], linestyle="--", color="gray", label="bbox (dashed)"),
         plt.Line2D([0], [0], marker="o", color="gray", linestyle="none",
                    markersize=5, label="corners (solid)"),
+        mpatches.Patch(color="red", label="displacement"),
         plt.Line2D([0], [0], marker="*", color="red", linestyle="none",
-                   markersize=8, label="origin (t=0)"),
+                   markersize=7, label="last step center"),
     ]
 
+    _arrow_handler = {legend_elements[4]: _HandlerAnnotateArrow()}
+
     # ── Pass 1: rough layout → measure title/legend bounding boxes in pixels ───
-    plt.subplots_adjust(left=0.12, bottom=0.13, right=0.97, top=0.92)
-    legend = fig.legend(handles=legend_elements, loc="upper center", ncol=5,
-                        fontsize=8, bbox_to_anchor=(0.5, LEGEND_ANCHOR_Y))
+    plt.subplots_adjust(left=0.20, bottom=0.17, right=0.97, top=0.92)
+    legend = fig.legend(handles=legend_elements, loc="upper center", ncol=6,
+                        fontsize=8, bbox_to_anchor=(0.5, LEGEND_ANCHOR_Y),
+                        handler_map=_arrow_handler)
     fig.canvas.draw()
 
     renderer = fig.canvas.get_renderer()
@@ -166,7 +199,7 @@ def main():
     fig.canvas.draw()
 
     # ── Row labels ────────────────────────────────────────────────────────────
-    ROW_GAP = 0.04 * 10 / 11   # same physical gap as col labels
+    ROW_GAP = 0.08   # push row labels further left to avoid y-axis overlap
     for row_idx, agent in enumerate(AGENT_ORDER):
         pos = axes[row_idx][0].get_position()
         y_center = (pos.y0 + pos.y1) / 2
@@ -176,7 +209,7 @@ def main():
 
     # ── Column labels ─────────────────────────────────────────────────────────
     bottom_row_y = axes[2][0].get_position().y0
-    col_label_y  = bottom_row_y - 0.04
+    col_label_y  = bottom_row_y - 0.085
     for col_idx, speed_label in enumerate(SPEED_LABELS):
         pos      = axes[2][col_idx].get_position()
         x_center = (pos.x0 + pos.x1) / 2
@@ -184,15 +217,19 @@ def main():
                  ha="center", va="top",
                  fontsize=12, fontweight="bold")
 
-    # ── Final legend ──────────────────────────────────────────────────────────
-    fig.legend(handles=legend_elements, loc="upper center", ncol=5,
-               fontsize=8, bbox_to_anchor=(0.5, LEGEND_ANCHOR_Y))
+    # ── Align all y-axis labels to the same x position ────────────────────────
+    fig.align_ylabels(axes)
 
-    # Build output path with entry-index suffix:
+    # ── Final legend ──────────────────────────────────────────────────────────
+    fig.legend(handles=legend_elements, loc="upper center", ncol=6,
+               fontsize=8, bbox_to_anchor=(0.5, LEGEND_ANCHOR_Y),
+               handler_map=_arrow_handler)
+
+    # Build output path with token-id suffix:
     # codebook_bev_{veh_h}-{veh_m}-{veh_l}_{ped_h}-{ped_m}-{ped_l}_{cyc_h}-{cyc_m}-{cyc_l}.png
-    idx_suffix = "_".join("-".join(str(i) for i in row) for row in entry_indices)
+    idx_suffix = "_".join("-".join(str(ACTION_START_ID + i) for i in row) for row in entry_indices)
     out_path = Path(args.out)
-    out_path = out_path.parent / f"{out_path.stem}_{idx_suffix}{out_path.suffix}"
+    out_path = out_path.parent / f"{out_path.stem}_{idx_suffix}_v8{out_path.suffix}"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
