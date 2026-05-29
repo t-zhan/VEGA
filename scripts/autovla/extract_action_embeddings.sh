@@ -18,11 +18,10 @@ extract() {
     local device="$2"
     nohup python "${REPO_ROOT}/src/extraction/autovla/extract.py" \
         --config "${CONFIG}" --ckpt "${CKPT}" --split "${split}" \
-        --output "${OUT_DIR}/${split}_action_embeddings_test20.h5" \
+        --output "${OUT_DIR}/${split}_action_embeddings.h5" \
         --device "${device}" \
-        --start 0 --end 20 \
-        > "${LOG_DIR}/extract_${split}_test20.log" 2>&1 &
+        > "${LOG_DIR}/extract_${split}.log" 2>&1 &
 }
 
 extract train cuda:0
-# extract val   cuda:0
+extract val   cuda:0
