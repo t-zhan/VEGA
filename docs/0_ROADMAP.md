@@ -97,8 +97,8 @@
 - [x] Teacher-forcing 前向传播，在 action token 位置提取最后一层 hidden state
   - 输出：`token_ids (S, T)`、`last_hidden (S, T, hidden_dim)`
   - 实现：`src/extraction/autovla/embedding.py` → `extract_hidden()`
-- [x] 批量处理 nuScenes val 集，结果保存为 `.npz`
-  - 字段：`first_embed`、`token_ids`、`last_hidden`、`sample_idx`
+- [x] 批量处理 nuScenes train/val 集，结果保存为 HDF5（`.h5`）
+  - 字段：`first_embed`、`token_ids`、`last_hidden`（gzip 压缩）、`sample_token`
   - 入口：`src/extraction/autovla/extract.py`；数据加载：`src/extraction/autovla/loaders.py`
 - [x] Codebook BEV 可视化：3×3 子图（行=veh/ped/cyc，列=高/中/低速），每格画 6 步虚线 bbox + 实心角点
   - 数据来源：`codebook_cache/agent_vocab.pkl` → `token_all['veh/ped/cyc']` shape `(2048, 6, 4, 2)`
@@ -110,6 +110,9 @@
   ![Codebook BEV](../assets/AutoVLA_codebook_bev.png)
 
   </details>
+
+- [x] 轨迹解码可视化：将 action token 序列通过 codebook 解码为 BEV 轨迹，批量渲染场景
+  - 实现：`src/analysis/autovla/decode_trajectory.py`
 
 ### 2.2 OpenDriveVLA Action 表示提取
 - [ ] Hook LLaVA backbone 最后隐层，在输出轨迹坐标 token 时保存隐向量
