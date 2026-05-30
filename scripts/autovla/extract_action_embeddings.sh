@@ -9,8 +9,9 @@ AUTOVLA_ROOT="${REPO_ROOT}/third_party/AutoVLA"
 CONFIG="${AUTOVLA_ROOT}/config/training/qwen2.5-vl-3B-nusc-sft-cot-local.yaml"
 CKPT="${AUTOVLA_ROOT}/runs/sft/2026-05-24_19-17-19/epoch=4-loss=0.9184.ckpt"
 OUT_DIR="${REPO_ROOT}/outputs/autovla/embeddings"
-LOG_DIR="${AUTOVLA_ROOT}/runs"
+LOG_DIR="${REPO_ROOT}/runs"
 
+mkdir -p "${OUT_DIR}" "${LOG_DIR}"
 cd "${AUTOVLA_ROOT}"
 
 extract() {
