@@ -21,7 +21,9 @@ pip install \
     tqdm \
     pyquaternion \
     torch \
-    nuscenes-devkit==1.1.11
+    nuscenes-devkit==1.1.11 \
+    huggingface-hub \
+    --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
 
 echo ""
 echo "Done. Activate: conda activate ${ENV_NAME}"
