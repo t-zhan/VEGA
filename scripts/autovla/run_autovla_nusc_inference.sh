@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-PYTHON="/home/autodrive/Programs/anaconda3/envs/autovla/bin/python"
 CKPT_DIR="runs/sft/2026-05-24_19-17-19"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
@@ -13,7 +12,7 @@ _run() {
   local LOG="third_party/AutoVLA/runs/logs/${TIMESTAMP}_eval_epoch${EPOCH}.log"
   nohup bash -c "
     cd third_party/AutoVLA
-    '${PYTHON}' -u tools/eval/nusc_eval.py \
+    python -u tools/eval/nusc_eval.py \
       --config 'config/eval/qwen2.5-vl-3B-nusc-eval-local.yaml' \
       --checkpoint '${CKPT}' \
       --seg_data_path 'data/nusc_eval_seg' \

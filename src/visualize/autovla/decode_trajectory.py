@@ -125,7 +125,7 @@ def select_idx(token_ids_all, codebook, speed, lateral, n):
     sfwd, slat = _speed_stats(token_ids_all, codebook)
     S = len(sfwd)
 
-    pool_size = min(S, max(n * 20, 500))
+    pool_size = S
     if speed == "high":
         pool = sfwd.argsort()[-pool_size:]
     elif speed == "low":
@@ -143,8 +143,8 @@ def select_idx(token_ids_all, codebook, speed, lateral, n):
         pos_pool = _batch_rollout_pos(token_ids_all[pool], codebook)
         rmse = _straight_rmse(pos_pool)
         chosen = pool[rmse.argsort()[:n]]
-    else:  # all — evenly spaced by forward speed
-        ordered = pool[sfwd[pool].argsort()[::-1]]
+    else:  # all — evenly spaced by lateral displacement
+        ordered = pool[lat_pool.argsort()]
         chosen  = ordered[np.linspace(0, len(ordered) - 1, min(n, len(ordered)), dtype=int)]
 
     return chosen.tolist(), sfwd, slat
@@ -194,7 +194,7 @@ _RIGHT_W = (_CB_GAP + _CB_BAND_W
 # ── drawing ────────────────────────────────────────────────────────────────────
 
 def _draw_subplot(ax, pos, head, substep_list, bin_ids, show_substeps, caption,
-                  xlim=None, ylim=None):
+                  xlim=None, ylim=None, alternate=False):
     """Draw one decoded trajectory on ax.
 
     xlim / ylim: shared data limits for uniform axes across a grid.
@@ -236,8 +236,10 @@ def _draw_subplot(ax, pos, head, substep_list, bin_ids, show_substeps, caption,
     for t in range(1, T + 1):
         ax.scatter(*pos[t], c=[colors[t-1]], s=40, zorder=5,
                    edgecolors="white", linewidths=0.7)
-        ax.annotate(f"#{bin_ids[t-1]}", pos[t], fontsize=_FS_ANNOT, color="#333333",
-                    ha="left", va="bottom", xytext=(3, 3),
+        va = "bottom" if not alternate or t % 2 == 1 else "top"
+        dy = 3 if not alternate or t % 2 == 1 else -3
+        ax.annotate(f"#{ACTION_START_ID + bin_ids[t-1]}", pos[t], fontsize=_FS_ANNOT, color="#333333",
+                    ha="left", va=va, xytext=(3, dy),
                     textcoords="offset points", zorder=7)
         adx = arrow_len * np.cos(head[t])
         ady = arrow_len * np.sin(head[t])
@@ -267,7 +269,7 @@ def _draw_subplot(ax, pos, head, substep_list, bin_ids, show_substeps, caption,
 
 
 def make_grid(idx_list, split, token_ids_all, sample_token_all, sfwd, slat,
-              codebook, show_substeps, title):
+              codebook, show_substeps, title, alternate=False):
     """Render all idx as a uniform-size grid.
 
     Layout:  square-ish (minimise |nrows - ncols|).
@@ -343,9 +345,9 @@ def make_grid(idx_list, split, token_ids_all, sample_token_all, sfwd, slat,
     for pos_i, (idx, orig, pos, head, subs, bin_ids) in enumerate(frames):
         r, c  = divmod(pos_i, ncols)
         ax    = fig.add_subplot(gs[r, c])
-        caption = f"fwd={sfwd[idx]:.2f} m/step · lat={slat[idx]:.2f} m/step\ntoken={orig}"
+        caption = f"fwd={sfwd[idx]:.2f} m/step · lat={slat[idx]:.2f} m/step\n{orig}"
         _draw_subplot(ax, pos, head, subs, bin_ids, show_substeps, caption,
-                      xlim=xlim, ylim=ylim)
+                      xlim=xlim, ylim=ylim, alternate=alternate)
 
     for pos_i in range(n, nrows * ncols):
         r, c = divmod(pos_i, ncols)
@@ -361,7 +363,7 @@ def make_grid(idx_list, split, token_ids_all, sample_token_all, sfwd, slat,
 
 
 def plot_single(idx, split, token_ids_all, sample_token_all, sfwd, slat,
-                codebook, show_substeps):
+                codebook, show_substeps, alternate=False):
     """Render one frame as a standalone figure, canvas sized to data."""
     ids_row = token_ids_all[idx]
     orig    = str(sample_token_all[idx])
@@ -392,9 +394,9 @@ def plot_single(idx, split, token_ids_all, sample_token_all, sfwd, slat,
     fig.patch.set_facecolor("#ffffff")
 
     ax = fig.add_axes([L/fig_w, BOT/fig_h, sub_w/fig_w, sub_h/fig_h])
-    caption = f"fwd={sfwd[idx]:.2f} m/step · lat={slat[idx]:.2f} m/step\ntoken={orig}"
+    caption = f"fwd={sfwd[idx]:.2f} m/step · lat={slat[idx]:.2f} m/step\n{orig}"
     _draw_subplot(ax, pos, head, subs, bin_ids, show_substeps, caption,
-                  xlim=xlim, ylim=ylim)
+                  xlim=xlim, ylim=ylim, alternate=alternate)
 
     title_y = 1 - _ph(_FS_TITLE) * 0.55 / fig_h
     fig.text(0.5, title_y,
@@ -428,6 +430,8 @@ def parse_args():
                    help="Number of frames to select (only with --speed, default: 6)")
     p.add_argument("--show-substeps", action="store_true",
                    help="Draw the 6 sub-step bounding boxes per token")
+    p.add_argument("--alternate", action="store_true",
+                   help="Alternate token-id labels top-right / bottom-right")
     p.add_argument("--output",   default=None,
                    help="Save path (default: show interactively)")
     p.add_argument("--h5", 
@@ -461,7 +465,7 @@ def main():
               f"  sfwd={sfwd[idx]:.2f}  slat={slat[idx]:.2f}")
         fig, pos, head, bin_ids = plot_single(
             idx, args.split, token_ids_all, sample_token_all,
-            sfwd, slat, codebook, args.show_substeps,
+            sfwd, slat, codebook, args.show_substeps, alternate=args.alternate,
         )
         print(f"\nDecoded trajectory ({len(pos)} waypoints):")
         for i, (p, h) in enumerate(zip(pos, np.degrees(head))):
@@ -492,7 +496,8 @@ def main():
             print(f"  token={sample_token_all[i]}"
                   f"  fwd={sfwd[i]:.2f} m/step  lat={slat[i]:.2f} m/step")
         fig = make_grid(idx_list, args.split, token_ids_all, sample_token_all,
-                        sfwd, slat, codebook, args.show_substeps, title)
+                        sfwd, slat, codebook, args.show_substeps, title,
+                        alternate=args.alternate)
 
     if args.output:
         out = Path(args.output)
