@@ -45,7 +45,9 @@ def extract_hidden(
     dataloader: DataLoader,
     action_start_id: int = 151665,
     device: str = "cuda",
-) -> Tuple[np.ndarray, np.ndarray]:
+    tokenizer=None,
+    T_text: int = 10,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Extract last-layer hidden states at action token positions via teacher forcing.
 
     Calls vlm(**inputs, output_hidden_states=True) directly, bypassing
@@ -57,16 +59,32 @@ def extract_hidden(
                     Each batch must contain input_ids and labels (ground truth).
         action_start_id: Vocabulary index of <action_0>.
         device: Device to run inference on.
+        tokenizer: Tokenizer for encoding "</think>" to locate CoT final text tokens.
+        T_text: Number of text tokens before </think> to extract (default 10).
 
     Returns:
-        token_ids  : ndarray (S, T)             — action token ids per sample
-        hidden_vecs: ndarray (S, T, hidden_dim) — last-layer hidden states per sample
+        token_ids      : ndarray (S, T_action)             — action token ids per sample
+        hidden_vecs    : ndarray (S, T_action, hidden_dim) — last-layer hidden states
+        text_token_ids : ndarray (S, T_text)               — last T_text text tokens before </think>
+        text_hidden    : ndarray (S, T_text, hidden_dim)   — hidden states for those tokens
+        sample_indices : ndarray (S,)                      — dataset indices for kept samples
     """
+    if tokenizer is not None:
+        think_end_ids = tokenizer.encode("</think>\n", add_special_tokens=False)
+        think_end_t = torch.tensor(think_end_ids, device=device)
+        L = len(think_end_ids)
+    else:
+        think_end_t = None
+
     vlm = vlm.to(device)
     vlm.eval()
 
     all_token_ids: list[np.ndarray] = []
     all_hidden: list[np.ndarray] = []
+    all_text_tids: list[np.ndarray] = []
+    all_text_hidden: list[np.ndarray] = []
+    sample_indices: list[int] = []
+    global_idx = 0
 
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Extracting hidden states"):
@@ -83,13 +101,57 @@ def extract_hidden(
             # Identify action token positions from ground-truth labels
             action_mask = labels >= action_start_id  # (B, T)
             B, D = labels.shape[0], last_hidden.shape[-1]
-            T = action_mask.sum(dim=1)[0].item()  # tokens per sample (fixed)
+            T_action = action_mask.sum(dim=1)[0].item()  # action tokens per sample (fixed)
 
-            # (B, T) and (B, T, D) — keep sample dimension intact
-            all_token_ids.append(labels[action_mask].view(B, T).cpu().numpy())
-            all_hidden.append(last_hidden[action_mask].view(B, T, D).float().cpu().numpy())
+            # (B, T_action) and (B, T_action, D) — keep sample dimension intact
+            action_tids = labels[action_mask].view(B, T_action)
+            action_hidden = last_hidden[action_mask].view(B, T_action, D)
 
-    return (
-        np.concatenate(all_token_ids, axis=0),   # (S, T)
-        np.concatenate(all_hidden, axis=0),       # (S, T, D)
-    )
+            # Extract last T_text text tokens before </think>
+            if think_end_t is not None:
+                text_tids_batch = []
+                text_hidden_batch = []
+                keep_indices = []
+                for i in range(B):
+                    first_act = (labels[i] >= action_start_id).nonzero()[0].item()
+                    # search backwards for </think>
+                    think_end_pos = None
+                    for pos in range(first_act - L, -1, -1):
+                        if torch.equal(labels[i, pos:pos + L], think_end_t):
+                            think_end_pos = pos
+                            break
+                    if think_end_pos is None:
+                        continue  # skip samples without </think>
+                    keep_indices.append(i)
+                    start = think_end_pos - T_text
+                    text_tids_batch.append(labels[i, start:think_end_pos])
+                    text_hidden_batch.append(last_hidden[i, start:think_end_pos])
+
+                if keep_indices:
+                    keep = torch.tensor(keep_indices, device=labels.device)
+                    all_token_ids.append(action_tids[keep].cpu().numpy())
+                    all_hidden.append(action_hidden[keep].float().cpu().numpy())
+                    all_text_tids.append(torch.stack(text_tids_batch).cpu().numpy())
+                    all_text_hidden.append(torch.stack(text_hidden_batch).float().cpu().numpy())
+                    for i in keep_indices:
+                        sample_indices.append(global_idx + i)
+                # else: entire batch skipped — no </think> in any sample
+            else:
+                all_token_ids.append(action_tids.cpu().numpy())
+                all_hidden.append(action_hidden.float().cpu().numpy())
+                for i in range(B):
+                    sample_indices.append(global_idx + i)
+            global_idx += B
+
+    result = [
+        np.concatenate(all_token_ids, axis=0),   # (S, T_action)
+        np.concatenate(all_hidden, axis=0),       # (S, T_action, D)
+    ]
+    if think_end_t is not None:
+        result.append(np.concatenate(all_text_tids, axis=0))    # (S, T_text)
+        result.append(np.concatenate(all_text_hidden, axis=0))  # (S, T_text, D)
+    else:
+        result.append(None)
+        result.append(None)
+    result.append(np.array(sample_indices, dtype=int))  # (S,) dataset indices
+    return tuple(result)

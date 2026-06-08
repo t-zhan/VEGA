@@ -23,6 +23,6 @@ _run() {
 }
 
 _run "${CKPT_DIR}/epoch=2-loss=0.9322.ckpt" "cuda:1"
-_run "${CKPT_DIR}/epoch=3-loss=0.9186.ckpt" "cuda:2"
-_run "${CKPT_DIR}/epoch=4-loss=0.9184.ckpt" "cuda:3"
+# _run "${CKPT_DIR}/epoch=3-loss=0.9186.ckpt" "cuda:2"
+# _run "${CKPT_DIR}/epoch=4-loss=0.9184.ckpt" "cuda:3"
 

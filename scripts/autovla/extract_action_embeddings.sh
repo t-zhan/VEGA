@@ -17,12 +17,14 @@ cd "${AUTOVLA_ROOT}"
 extract() {
     local split="$1"
     local device="$2"
+    local timestamp
+    timestamp="$(date '+%Y%m%d_%H%M%S')"
     nohup python "${REPO_ROOT}/src/extraction/autovla/extract.py" \
         --config "${CONFIG}" --ckpt "${CKPT}" --split "${split}" \
-        --output "${OUT_DIR}/${split}_action_embeddings.h5" \
+        --output "${OUT_DIR}/${split}-$(basename "${CKPT}" .ckpt | sed 's/=/_/g')-action_text_embeddings.h5" \
         --device "${device}" \
-        > "${LOG_DIR}/extract_${split}.log" 2>&1 &
+        > "${LOG_DIR}/${timestamp}_extract_${split}.log" 2>&1 &
 }
 
-extract train cuda:0
-extract val   cuda:0
+extract train cuda:2
+extract val   cuda:2

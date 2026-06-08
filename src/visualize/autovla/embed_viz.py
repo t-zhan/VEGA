@@ -48,7 +48,7 @@ def parse_args():
                    help="Output dimensions (default: 2)")
     p.add_argument("--codebook",
                    default="third_party/AutoVLA/codebook_cache/agent_vocab.pkl")
-    p.add_argument("--output", default="outputs/autovla/viz/umap.png")
+    p.add_argument("--output", default="outputs/autovla/viz/embed_viz.png")
     return p.parse_args()
 
 
@@ -67,14 +67,24 @@ def main():
         raise SystemExit("Specify --tokens or --speed.")
 
     first_embed = data["first_embed"]                              # (2048, D)
-    token_ids = data["token_ids"]                                  # (S', T)
+    token_ids = data["token_ids"]                                  # (S', T_action)
 
     used_bins = np.unique(token_ids - 151665)
     used_embed = first_embed[used_bins]                            # (K, D)
     used_token_ids = used_bins + 151665                            # (K,) real token IDs
 
-    last_hidden = data["last_hidden"].reshape(-1, first_embed.shape[-1])  # (S'*T, D)
-    last_token_ids = token_ids.reshape(-1)                                  # (S'*T,)
+    last_hidden = data["last_hidden"].reshape(-1, first_embed.shape[-1])  # (S*T_action, D)
+    last_token_ids = token_ids.reshape(-1)                                  # (S*T_action,)
+
+    has_text = "text_hidden" in data and "text_token_ids" in data
+    if has_text:
+        text_hidden = data["text_hidden"].reshape(-1, first_embed.shape[-1])  # (S*T_text, D)
+        text_tids = data["text_token_ids"].reshape(-1)                        # (S*T_text,)
+    has_text_first = has_text and "text_first_embed" in data
+    if has_text_first:
+        text_first_flat = data["text_first_embed"][:].reshape(-1, first_embed.shape[-1])  # (S*T_text, D)
+        _, unique_idx = np.unique(text_tids, return_index=True)  # dedup like action side
+        text_first = text_first_flat[unique_idx]                 # (K_text, D)
 
     # Per-token lateral displacement (positive = left, negative = right)
     from decode_trajectory import load_codebook
@@ -82,7 +92,7 @@ def main():
     token_lat = codebook_t[:, -1].mean(dim=1)[:, 1].numpy()  # (2048,)
 
     fe_lat = token_lat[used_bins]                     # (K,)
-    lh_lat = token_lat[last_token_ids - 151665]       # (S'*T,)
+    lh_lat = token_lat[last_token_ids - 151665]       # (S*T_action,)
 
     fe_colors = fe_lat
     lh_colors = lh_lat
@@ -114,16 +124,29 @@ def main():
             setter(ticks[0], ticks[-1])
             axis.set_major_locator(mticker.FixedLocator(ticks))
 
-    def _draw(ax, arr, colors, title, annot_token_ids):
-        p = reduce(arr, args.method, args.ndim)
+    def _draw(ax, arr, colors, title, annot_token_ids, text_arr=None):
+        if text_arr is not None:
+            combined = np.concatenate([arr, text_arr], axis=0)
+            p_all = reduce(combined, args.method, args.ndim)
+            p = p_all[:len(arr)]
+            tp = p_all[len(arr):]
+        else:
+            p = reduce(arr, args.method, args.ndim)
+            tp = None
         if is_3d:
             ax.scatter(p[:, 0], p[:, 1], p[:, 2], s=14, alpha=1.0,
                        c=colors, cmap="RdYlBu", norm=norm)
             ax.set_zlabel("Dim 3", fontsize=F-4, labelpad=8)
-            _snap_3d(ax, p)
+            _snap_3d(ax, p if tp is None else p_all)
+            if tp is not None:
+                ax.scatter(tp[:, 0], tp[:, 1], tp[:, 2], s=8, alpha=0.2,
+                           c="gray")
         else:
             ax.scatter(p[:, 0], p[:, 1], s=18, alpha=1.0,
                        c=colors, cmap="RdYlBu", norm=norm)
+            if tp is not None:
+                ax.scatter(tp[:, 0], tp[:, 1], s=10, alpha=0.2,
+                           c="gray")
         # for (x, y), tid in zip(p, annot_token_ids):
         #     ax.annotate(f"#{tid}", (x, y), fontsize=9, alpha=0.8,
         #                  xytext=(3, 3), textcoords="offset points")
@@ -133,8 +156,10 @@ def main():
         ax.set_ylabel("Dim 2", fontsize=F-4 if is_3d else F, labelpad=12 if is_3d else 4)
         ax.tick_params(labelsize=F - 4 if is_3d else F)
 
-    _draw(ax0, used_embed, fe_colors, "First-layer embed", used_token_ids)
-    _draw(ax1, last_hidden, lh_colors, "Last-layer hidden", last_token_ids)
+    _draw(ax0, used_embed, fe_colors, "First-layer embed", used_token_ids,
+          text_arr=text_first if has_text_first else None)
+    _draw(ax1, last_hidden, lh_colors, "Last-layer hidden", last_token_ids,
+          text_arr=text_hidden if has_text else None)
 
     parts = [args.method.upper(), f"{len(sample_tokens)} sample(s)"]
     if args.speed:
