@@ -82,9 +82,7 @@ def main():
         text_tids = data["text_token_ids"].reshape(-1)                        # (S*T_text,)
     has_text_first = has_text and "text_first_embed" in data
     if has_text_first:
-        text_first_flat = data["text_first_embed"][:].reshape(-1, first_embed.shape[-1])  # (S*T_text, D)
-        _, unique_idx = np.unique(text_tids, return_index=True)  # dedup like action side
-        text_first = text_first_flat[unique_idx]                 # (K_text, D)
+        text_first = data["text_first_embed"][:]  # (vocab_size, D)
 
     # Per-token lateral displacement (positive = left, negative = right)
     from decode_trajectory import load_codebook

@@ -16,7 +16,7 @@ Output .h5 fields:
     sample_token    (S,)                       nuScenes sample token (32-char hex) for each sample
     text_token_ids  (S, T_text)               last T_text text tokens before </think> in CoT
     text_hidden     (S, T_text, hidden_dim)    hidden states for those text tokens
-    text_first_embed (S, T_text, hidden_dim)   first-layer embed_tokens.weight rows for text tokens
+    text_first_embed (vocab_size_text, hidden_dim)  first-layer embed_tokens.weight rows for all text tokens
 """
 
 import argparse
@@ -70,7 +70,7 @@ def load_filtered_embeddings(
             result["text_token_ids"]  = f["text_token_ids"][sel]
             result["text_hidden"]     = f["text_hidden"][sel]
             if "text_first_embed" in f:
-                result["text_first_embed"] = f["text_first_embed"][sel]
+                result["text_first_embed"] = f["text_first_embed"][:]  # static, no sample filtering needed
         return result
 
 
@@ -78,8 +78,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Extract AutoVLA action token embeddings")
     parser.add_argument("--config", required=True, help="Path to training YAML config")
     parser.add_argument("--ckpt", required=True, help="Path to Lightning checkpoint (.ckpt)")
+    parser.add_argument("--mode", default="teacher-forcing",
+                        choices=["teacher-forcing", "autoregressive"],
+                        help="Extraction mode (default: teacher-forcing)")
     parser.add_argument("--split", default="val", choices=["train", "val"],
-                        help="Dataset split to run teacher-forcing on (default: val)")
+                        help="Dataset split")
     parser.add_argument("--output", default="outputs/action_embeddings.h5",
                         help="Output .h5 file path (default: outputs/action_embeddings.h5)")
     parser.add_argument("--device", default="cuda", help="Device (default: cuda)")
@@ -105,7 +108,7 @@ def main():
     args = parse_args()
 
     from loaders import load_autovla, load_dataloader
-    from embedding import extract_static, extract_hidden
+    from embedding import extract_static, extract_hidden, extract_autoregressive
 
     print(f"[1/4] Loading model from checkpoint: {args.ckpt}")
     model = load_autovla(args.config, args.ckpt, device=args.device)
@@ -120,33 +123,42 @@ def main():
                                  start=args.start, end=args.end)
     print(f"      {len(dataloader.dataset)} samples")
 
-    print(f"[4/4] Extracting last-layer hidden states (teacher forcing)")
-    token_ids, last_hidden, text_tids, text_hidden, kept_idx = extract_hidden(
-        model.vlm, dataloader, action_start_id=action_start_id, device=args.device,
-        tokenizer=model.processor.tokenizer, T_text=args.T_text,
-    )
+    if args.mode == "autoregressive":
+        print(f"[4/4] Extracting last-layer hidden states (autoregressive generation)")
+        token_ids, last_hidden, text_tids, text_hidden, kept_idx = extract_autoregressive(
+            model.vlm, dataloader, action_start_id=action_start_id, device=args.device,
+            tokenizer=model.processor.tokenizer, T_text=args.T_text,
+        )
+    else:
+        print(f"[4/4] Extracting last-layer hidden states (teacher forcing)")
+        token_ids, last_hidden, text_tids, text_hidden, kept_idx = extract_hidden(
+            model.vlm, dataloader, action_start_id=action_start_id, device=args.device,
+            tokenizer=model.processor.tokenizer, T_text=args.T_text,
+        )
     print(f"      extracted {last_hidden.shape[0]} samples, {last_hidden.shape[1]} action tokens each")
-    print(f"      text tokens: {text_tids.shape[1]} per sample, hidden shape: {text_hidden.shape}")
+    if text_tids is not None:
+        print(f"      text tokens: {text_tids.shape[1]} per sample, hidden shape: {text_hidden.shape}")
 
     sample_tokens = _collect_tokens(dataloader.dataset, kept_idx)
 
-    if text_tids is not None:
-        text_first = model.vlm.model.embed_tokens.weight[
-            torch.from_numpy(text_tids.ravel())
-        ].detach().float().cpu().numpy().reshape(text_tids.shape[0], text_tids.shape[1], -1)
+    # Extract full text token embeddings (static, same as action first_embed)
+    text_first = model.vlm.model.embed_tokens.weight[
+        :action_start_id
+    ].detach().float().cpu().numpy()                                         # (vocab_size_text, hidden_dim)
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(output_path, "w") as f:
+        f.attrs["generation_mode"] = args.mode
         f.create_dataset("first_embed",  data=first_embed, dtype="float32")
         f.create_dataset("token_ids",    data=token_ids,   dtype="int32")
         f.create_dataset("last_hidden",  data=last_hidden, dtype="float32",
                          compression="gzip", compression_opts=4)
         f.create_dataset("sample_token", data=np.array(sample_tokens, dtype=h5py.string_dtype()))
+        f.create_dataset("text_first_embed", data=text_first, dtype="float32")
         if text_tids is not None:
             f.create_dataset("text_token_ids", data=text_tids, dtype="int32")
             f.create_dataset("text_hidden",    data=text_hidden, dtype="float32")
-            f.create_dataset("text_first_embed", data=text_first, dtype="float32")
     print(f"Saved to {output_path}")
 
 
