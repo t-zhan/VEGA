@@ -307,7 +307,7 @@ def _ps_cos_dist(x):
     return _cos_dist(x, _STATE["threads"])
 
 
-def _per_sample_hidden(hidden, metric, processes, threads, desc):
+def _per_sample_hidden(hidden, metric, processes, threads, desc, iso_threads):
     if metric is _iso:
         samples = (np.ascontiguousarray(sample) for sample in hidden)
         return _summary(
@@ -316,7 +316,7 @@ def _per_sample_hidden(hidden, metric, processes, threads, desc):
                 samples,
                 len(hidden),
                 processes,
-                threads,
+                iso_threads,
                 desc,
             )
         )
@@ -326,7 +326,8 @@ def _per_sample_hidden(hidden, metric, processes, threads, desc):
 
 
 def _per_sample_first(
-    token_ids, embedding, metric, offset, processes, threads, desc, skip_errors=False
+    token_ids, embedding, metric, offset, processes, threads, desc, iso_threads,
+    skip_errors=False,
 ):
     if metric is _iso:
         samples = (
@@ -338,7 +339,7 @@ def _per_sample_first(
                 samples,
                 len(token_ids),
                 processes,
-                threads,
+                iso_threads,
                 desc,
             )
         )
@@ -514,7 +515,13 @@ def main():
         "--threads",
         type=int,
         default=12,
-        help="Threads used by every metric function inside each process",
+        help="Threads used by non-IsoScore metric functions inside each process",
+    )
+    parser.add_argument(
+        "--iso-threads",
+        type=int,
+        default=2,
+        help="Threads used by IsoScore (3584x3584 SVD) – keep low to avoid contention",
     )
     args = parser.parse_args()
     output = _tagged_output_path(args.output, args.h5)
@@ -589,6 +596,7 @@ def main():
                     args.processes,
                     args.threads,
                     d,
+                    args.iso_threads,
                     s,
                 ),
             )
@@ -605,7 +613,7 @@ def main():
                 section,
                 name,
                 lambda m=metric, d=f"{prefix} ps {name}": _per_sample_hidden(
-                    hidden, m, args.processes, args.threads, d
+                    hidden, m, args.processes, args.threads, d, args.iso_threads
                 ),
             )
         _print_section(results, section)
