@@ -3,15 +3,15 @@
 CKPT_DIR="runs/sft/2026-05-24_19-17-19"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-mkdir -p third_party/AutoVLA/runs/logs
+mkdir -p "${AUTOVLA_DIR}/runs/logs"
 
 _run() {
   local CKPT="$1" DEVICE="$2"
   local EPOCH
   EPOCH=$(basename "${CKPT}" | grep -oP 'epoch=\K[0-9]+')
-  local LOG="third_party/AutoVLA/runs/logs/${TIMESTAMP}_eval_epoch${EPOCH}.log"
+  local LOG="${AUTOVLA_DIR}/runs/logs/${TIMESTAMP}_eval_epoch${EPOCH}.log"
   nohup bash -c "
-    cd third_party/AutoVLA
+    cd ${AUTOVLA_DIR}
     python -u tools/eval/nusc_eval.py \
       --config 'config/eval/qwen2.5-vl-3B-nusc-eval-local.yaml' \
       --checkpoint '${CKPT}' \

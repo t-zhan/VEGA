@@ -2,16 +2,13 @@
 set -euo pipefail
 
 ENV_NAME="autovla"
-AUTOVLA_ROOT="$(pwd)/third_party/AutoVLA"
-
-source "$(conda info --base)/etc/profile.d/conda.sh"
 
 # ── Create env ─────────────────────────────────────────────────
 conda create -n "$ENV_NAME" python=3.9 'pip<25' -y
 conda activate "$ENV_NAME"
 
 # ── All deps (torch, autoawq, ...) via setup.py ────────────────
-pip install -e "$AUTOVLA_ROOT" \
+pip install -e "${AUTOVLA_DIR}" \
     --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
     --extra-index-url https://download.pytorch.org/whl/cu121
 

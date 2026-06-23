@@ -3,8 +3,6 @@ set -euo pipefail
 
 ENV_NAME="autovla_nusc_preprocess"
 
-source "$(conda info --base)/etc/profile.d/conda.sh"
-
 echo "[1/2] Creating conda environment '${ENV_NAME}' (Python 3.9)..."
 if ! conda env list | grep -qE "^${ENV_NAME}[[:space:]]"; then
     conda create -n "${ENV_NAME}" python=3.9 -y

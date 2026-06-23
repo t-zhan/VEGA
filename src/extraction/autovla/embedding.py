@@ -248,6 +248,8 @@ def extract_autoregressive(
             for i in range(B):
                 gen_act_pos = action_mask[i].nonzero().squeeze(1)  # (n_act,)
                 if len(gen_act_pos) < 10:
+                    print(f"[DEBUG] sample {global_idx + i} dropped: only {len(gen_act_pos)} action tokens generated "
+                          f"(prefill_len={prefill_len}, T_gen={T_gen})")
                     continue  # drop sample: fewer than 10 generated action tokens
 
                 gen_act_pos = gen_act_pos[:10]
@@ -263,6 +265,9 @@ def extract_autoregressive(
                             think_end_pos = pos
                             break
                     if think_end_pos is None or think_end_pos - T_text < prefill_len:
+                        print(f"[DEBUG] sample {global_idx + i} dropped: think_end_pos={think_end_pos}, "
+                              f"first_act_pos={first_act_pos}, prefill_len={prefill_len}, T_text={T_text}, "
+                              f"n_action_tokens={len(gen_act_pos)}")
                         continue  # drop sample: no </think> or text window not fully generated
 
                     start_t = think_end_pos - T_text
@@ -276,6 +281,8 @@ def extract_autoregressive(
                     all_text_tids.append(text_tids_i.cpu().numpy())
                     all_text_hidden.append(text_hidden_i.float().cpu().numpy())
                     sample_indices.append(global_idx + i)
+                    print(f"[DEBUG] sample {global_idx + i} KEPT: think_end_pos={think_end_pos}, "
+                          f"first_act_pos={first_act_pos}, n_action_tokens={len(gen_act_pos)}")
                 else:
                     all_token_ids.append(act_tids.unsqueeze(0).cpu().numpy())
                     all_hidden.append(act_hidden.unsqueeze(0).float().cpu().numpy())

@@ -5,50 +5,48 @@
 #   conda activate autovla
 #   bash scripts/autovla/batch_extract_action_embeddings.sh
 #
-# Set BACKGROUND=false to log to stdout instead of files.
+# Set BACKGROUND=true to write log files instead of stdout.
 
-REPO_ROOT="$(pwd)"
-AUTOVLA_ROOT="${REPO_ROOT}/third_party/AutoVLA"
-CONFIG="${AUTOVLA_ROOT}/config/training/qwen2.5-vl-3B-nusc-sft-cot-local.yaml"
-CKPT_DIR="${AUTOVLA_ROOT}/runs/sft/2026-05-24_19-17-19"
-OUT_DIR="${REPO_ROOT}/outputs/autovla/embeddings"
-LOG_DIR="${REPO_ROOT}/runs"
-DEVICES=("cuda:1" "cuda:1" "cuda:2")
-BACKGROUND=true
+CONFIG="${AUTOVLA_DIR}/config/training/qwen2.5-vl-7B-nusc-sft-cot-local.yaml"
+CKPT_DIR="${AUTOVLA_DIR}/runs/sft/qwen2.5-7B"
+GPU_RANK_LIST="1 2 3"
+BACKGROUND="${BACKGROUND:-false}"
 
-mkdir -p "${OUT_DIR}" "${LOG_DIR}"
-cd "${AUTOVLA_ROOT}"
+mkdir -p "${EMBED_OUTPUT_DIR}" "${PROJECT_RUNS_DIR}"
+cd "${AUTOVLA_DIR}"
 
 # ---- device pool ----
 POOL="/tmp/device_pool_$$"
 mkfifo "${POOL}"
 exec 3<>"${POOL}"
 rm "${POOL}"
-for dev in "${DEVICES[@]}"; do
-    echo "${dev}" >&3
+for rank in ${GPU_RANK_LIST}; do
+    echo "${rank}" >&3
 done
 # ----------------------
 
 extract_one() {
     local ckpt="$1"
     local split="$2"
-    local device="$3"
+    local device="cuda:${3}"
     local ckpt_name
     ckpt_name="$(basename "${ckpt}" .ckpt | sed 's/=/_/g')"
-    local out_file="${OUT_DIR}/${split}-${ckpt_name}-action_text_embeddings.h5"
+    local out_file="${EMBED_OUTPUT_DIR}/${split}-${ckpt_name}-action_text_embeddings.h5"
 
     if [[ "${BACKGROUND}" == "true" ]]; then
         local timestamp
         timestamp="$(date '+%Y%m%d_%H%M%S')"
-        local log_file="${LOG_DIR}/${timestamp}_extract_${ckpt_name}_${split}.log"
+        local log_file="${PROJECT_RUNS_DIR}/${timestamp}_extract_${ckpt_name}_${split}.log"
         echo "  [${split}] log: ${log_file}"
-        python "${REPO_ROOT}/src/extraction/autovla/extract.py" \
+        python "${PROJECT_DIR}/src/extraction/autovla/extract.py" \
+            --mode "${MODE}" \
             --config "${CONFIG}" --ckpt "${ckpt}" --split "${split}" \
             --output "${out_file}" \
             --device "${device}" \
             > "${log_file}" 2>&1
     else
-        python "${REPO_ROOT}/src/extraction/autovla/extract.py" \
+        python "${PROJECT_DIR}/src/extraction/autovla/extract.py" \
+            --mode "${MODE}" \
             --config "${CONFIG}" --ckpt "${ckpt}" --split "${split}" \
             --output "${out_file}" \
             --device "${device}"
@@ -56,13 +54,13 @@ extract_one() {
 }
 
 for ckpt in "${CKPT_DIR}"/*.ckpt; do
-    read -u 3 dev
+    read -u 3 rank
     (
-        echo "=== $(basename "${ckpt}") on ${dev} ==="
-        extract_one "${ckpt}" train "${dev}" &
-        # extract_one "${ckpt}" val   "${dev}" &
+        echo "=== $(basename "${ckpt}") on cuda:${rank} ==="
+        extract_one "${ckpt}" train "${rank}" &
+        # extract_one "${ckpt}" val   "${rank}" &
         wait
-        echo "${dev}" >&3
+        echo "${rank}" >&3
     ) &
 done
 wait

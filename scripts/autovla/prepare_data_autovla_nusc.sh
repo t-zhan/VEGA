@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# 从 VEGA 项目根目录执行: bash scripts/autovla/prepare_data_autovla_nusc.sh
+# 预处理 nuScenes 数据集。
+# 用法: bash scripts/autovla/prepare_data_autovla_nusc.sh [split] [num_workers]
+#   split:       train|val (默认 train)
+#   num_workers: 并行进程数 (默认 $(nproc))
 set -euo pipefail
 
-cd "third_party/AutoVLA"
+cd "${AUTOVLA_DIR}"
 
 preprocess_nusc() {
     local SPLIT="${1:-train}"
@@ -37,5 +40,4 @@ preprocess_nusc() {
 }
 
 # ── 调用 ─────────────────────────────────────────────────────────
-preprocess_nusc "train" "$(nproc)"
-preprocess_nusc "val" "$(nproc)"
+preprocess_nusc "${1:-train}" "${2:-$(nproc)}"
