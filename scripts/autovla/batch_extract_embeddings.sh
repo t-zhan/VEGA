@@ -6,7 +6,7 @@ set -euo pipefail
 #   conda activate autovla
 #   bash scripts/autovla/batch_extract_action_embeddings.sh
 
-split=train
+split=val
 background=false
 mode=autoregressive # teacher-forcing / autoregressive
 gpu_rank_list="1 2 3"
@@ -46,7 +46,7 @@ extract_one() {
     local device="cuda:${2}"
     local ckpt_name
     ckpt_name="$(basename "${ckpt}" .ckpt | sed 's/=/_/g')"
-    local out_file="${EMBED_OUTPUT_DIR}/${split}-${ckpt_name}-action_text_embeddings.h5"
+    local out_file="${EMBED_OUTPUT_DIR}/${split}-${ckpt_name}-${mode}-embeddings.h5"
 
     if [[ "${background}" == "true" ]]; then
         local timestamp

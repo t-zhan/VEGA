@@ -158,7 +158,7 @@ def extract_hidden(
 
 
 def extract_autoregressive(
-    vlm: torch.nn.Module,
+    model: torch.nn.Module,
     dataloader: DataLoader,
     action_start_id: int = 151665,
     device: str = "cuda",
@@ -172,9 +172,8 @@ def extract_autoregressive(
     CoT reasoning → </think> → action tokens, without ground-truth labels.
 
     Args:
-        vlm: The inner Qwen2.5-VL model (AutoVLA.vlm).
-        dataloader: Yields batches. Only input_ids and pixel_values are used;
-                    labels are ignored.
+        model: AutoVLA model. Uses model.get_prompt() to build prompt-only inputs.
+        dataloader: Yields samples containing input_features.
         action_start_id: Vocabulary index of <action_0>.
         device: Device to run inference on.
         tokenizer: Tokenizer for encoding "</think>" to locate text/action boundary.
@@ -192,7 +191,8 @@ def extract_autoregressive(
     else:
         think_end_t = None
 
-    vlm = vlm.to(device)
+    model.device = device
+    vlm = model.vlm.to(device)
     vlm.eval()
 
     all_token_ids: list[np.ndarray] = []
@@ -204,91 +204,89 @@ def extract_autoregressive(
 
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Autoregressive extraction"):
-            B = batch["input_ids"].shape[0]
+            for sample in batch:
+                sample_idx = global_idx
+                global_idx += 1
 
-            # Only pass prompt inputs (no labels)
-            inputs = {
-                k: v.to(device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-                if k not in ("labels", "gt_trajectory", "gt_action", "has_cot")
-            }
+                prompt_inputs = model.get_prompt(sample["input_features"])
+                inputs = {
+                    k: v.to(device) if isinstance(v, torch.Tensor) else v
+                    for k, v in prompt_inputs.items()
+                    if isinstance(v, torch.Tensor)
+                }
 
-            outputs = vlm.generate(
-                **inputs,
-                output_hidden_states=True,
-                return_dict_in_generate=True,
-                max_new_tokens=max_new_tokens,
-                do_sample=True,
-                temperature=0.7,
-                top_k=20,
-                top_p=0.2,
-            )
+                outputs = vlm.generate(
+                    **inputs,
+                    output_hidden_states=True,
+                    return_dict_in_generate=True,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=True,
+                    temperature=0.7,
+                    top_k=20,
+                    top_p=0.2,
+                )
 
-            # Stack last-layer hidden state per generation step → (B, T_gen, D)
-            # Step 0: hs[-1] includes all prefill positions → take last token
-            # Steps 1+: hs[-1] is (B, 1, D) → squeeze
-            last_hidden_flat = []
-            for step_i, hs in enumerate(outputs.hidden_states):
-                h = hs[-1]  # last layer
-                if step_i == 0 and h.shape[1] > 1:
-                    h = h[:, -1:, :]  # take last prefill token only
-                last_hidden_flat.append(h.squeeze(1))
-            last_hidden = torch.stack(last_hidden_flat, dim=1)
-            # outputs.sequences: (B, prefill_len + T_gen)
-            gen_ids = outputs.sequences  # full sequence
+                # Stack last-layer hidden state per generation step → (B, T_gen, D)
+                # Step 0: hs[-1] includes all prefill positions → take last token
+                # Steps 1+: hs[-1] is (B, 1, D) → squeeze
+                last_hidden_flat = []
+                for step_i, hs in enumerate(outputs.hidden_states):
+                    h = hs[-1]  # last layer
+                    if step_i == 0 and h.shape[1] > 1:
+                        h = h[:, -1:, :]  # take last prefill token only
+                    last_hidden_flat.append(h.squeeze(1))
+                last_hidden = torch.stack(last_hidden_flat, dim=1)
+                # outputs.sequences: (B, prefill_len + T_gen)
+                gen_ids = outputs.sequences  # full sequence
 
-            T_gen = last_hidden.shape[1]
-            D = last_hidden.shape[-1]
-            prefill_len = gen_ids.shape[1] - T_gen
+                T_gen = last_hidden.shape[1]
+                D = last_hidden.shape[-1]
+                prefill_len = gen_ids.shape[1] - T_gen
 
-            # Identify action token positions in the generated region only
-            action_mask = gen_ids[:, prefill_len:] >= action_start_id  # (B, T_gen)
+                # Identify action token positions in the generated region only
+                action_mask = gen_ids[:, prefill_len:] >= action_start_id  # (B, T_gen)
 
-            # Process each sample in batch individually (T_action varies)
-            for i in range(B):
-                gen_act_pos = action_mask[i].nonzero().squeeze(1)  # (n_act,)
+                gen_act_pos = action_mask[0].nonzero().squeeze(1)  # (n_act,)
                 if len(gen_act_pos) < 10:
-                    print(f"[DEBUG] sample {global_idx + i} dropped: only {len(gen_act_pos)} action tokens generated "
+                    print(f"[DEBUG] sample {sample_idx} dropped: only {len(gen_act_pos)} action tokens generated "
                           f"(prefill_len={prefill_len}, T_gen={T_gen})")
                     continue  # drop sample: fewer than 10 generated action tokens
 
                 gen_act_pos = gen_act_pos[:10]
-                act_tids = gen_ids[i, prefill_len + gen_act_pos]
-                act_hidden = last_hidden[i, gen_act_pos]  # (10, D)
+                act_tids = gen_ids[0, prefill_len + gen_act_pos]
+                act_hidden = last_hidden[0, gen_act_pos]  # (10, D)
 
                 # Extract text tokens before </think>
                 if think_end_t is not None:
                     first_act_pos = prefill_len + gen_act_pos[0].item()
                     think_end_pos = None
                     for pos in range(first_act_pos - L, -1, -1):
-                        if torch.equal(gen_ids[i, pos:pos + L], think_end_t):
+                        if torch.equal(gen_ids[0, pos:pos + L], think_end_t):
                             think_end_pos = pos
                             break
                     if think_end_pos is None or think_end_pos - T_text < prefill_len:
-                        print(f"[DEBUG] sample {global_idx + i} dropped: think_end_pos={think_end_pos}, "
+                        print(f"[DEBUG] sample {sample_idx} dropped: think_end_pos={think_end_pos}, "
                               f"first_act_pos={first_act_pos}, prefill_len={prefill_len}, T_text={T_text}, "
                               f"n_action_tokens={len(gen_act_pos)}")
                         continue  # drop sample: no </think> or text window not fully generated
 
                     start_t = think_end_pos - T_text
-                    text_tids_i = gen_ids[i, start_t:think_end_pos].unsqueeze(0)  # (1, T_text)
+                    text_tids_i = gen_ids[0, start_t:think_end_pos].unsqueeze(0)  # (1, T_text)
 
                     text_gen_pos = torch.arange(start_t, think_end_pos, device=device) - prefill_len
-                    text_hidden_i = last_hidden[i, text_gen_pos].unsqueeze(0)  # (1, T_text, D)
+                    text_hidden_i = last_hidden[0, text_gen_pos].unsqueeze(0)  # (1, T_text, D)
 
                     all_token_ids.append(act_tids.unsqueeze(0).cpu().numpy())
                     all_hidden.append(act_hidden.unsqueeze(0).float().cpu().numpy())
                     all_text_tids.append(text_tids_i.cpu().numpy())
                     all_text_hidden.append(text_hidden_i.float().cpu().numpy())
-                    sample_indices.append(global_idx + i)
-                    print(f"[DEBUG] sample {global_idx + i} KEPT: think_end_pos={think_end_pos}, "
+                    sample_indices.append(sample_idx)
+                    print(f"[DEBUG] sample {sample_idx} KEPT: think_end_pos={think_end_pos}, "
                           f"first_act_pos={first_act_pos}, n_action_tokens={len(gen_act_pos)}")
                 else:
                     all_token_ids.append(act_tids.unsqueeze(0).cpu().numpy())
                     all_hidden.append(act_hidden.unsqueeze(0).float().cpu().numpy())
-                    sample_indices.append(global_idx + i)
-
-            global_idx += B
+                    sample_indices.append(sample_idx)
 
     result = [
         np.concatenate(all_token_ids, axis=0),   # (S, T_fixed)

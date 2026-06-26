@@ -5,10 +5,10 @@ set -euo pipefail
 #   conda activate autovla
 #   bash scripts/autovla/extract_action_embeddings.sh
 
-mode=teacher-forcing  # teacher-forcing / autoregressive
+mode=autoregressive  # teacher-forcing / autoregressive
 
-config="${AUTOVLA_DIR}/config/training/qwen2.5-vl-3B-nusc-sft-cot-local.yaml"
-ckpt="${AUTOVLA_DIR}/runs/sft/2026-05-24_19-17-19/epoch=2-loss=0.9322.ckpt"
+config="${AUTOVLA_DIR}/config/eval/qwen2.5-vl-3B-nusc-eval-local.yaml"
+ckpt="${AUTOVLA_DIR}/pretrained/AutoVLA_PDMS_89.ckpt"
 mkdir -p "${EMBED_OUTPUT_DIR}" "${PROJECT_RUNS_DIR}"
 cd "${AUTOVLA_DIR}"
 
@@ -23,9 +23,8 @@ extract() {
         --config "${config}" --ckpt "${ckpt}" --split "${split}" \
         --output "${EMBED_OUTPUT_DIR}/${out_name}" \
         --device "${device}" \
-        --end 100 \
         > "${PROJECT_RUNS_DIR}/${timestamp}_extract_${mode}_${split}.log" 2>&1 &
 }
 
-extract train cuda:2
+extract train cuda:3
 extract val   cuda:3

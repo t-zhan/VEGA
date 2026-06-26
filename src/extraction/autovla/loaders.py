@@ -21,6 +21,7 @@ if str(_AUTOVLA_ROOT / "navsim") not in sys.path:
 
 from models.autovla import AutoVLA  # noqa: E402
 from dataset_utils.sft_dataset import SFTDataset, DataCollator  # noqa: E402
+from dataset_utils.rft_dataset import RFTDataset  # noqa: E402
 from transformers import AutoProcessor  # noqa: E402
 
 
@@ -97,6 +98,39 @@ def load_dataloader(
         dataset,
         batch_size=batch_size,
         collate_fn=collator,
+        num_workers=config["inference"]["num_workers"],
+        shuffle=False,
+    )
+
+
+def _identity_collate(features):
+    return features
+
+
+def load_prompt_dataloader(
+    config_path: str,
+    split: Literal["train", "val"] = "val",
+    batch_size: int = 1,
+    start: int = None,
+    end: int = None,
+) -> DataLoader:
+    """Build a prompt-only DataLoader for autoregressive generation."""
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    dataset = RFTDataset(
+        config["data"][split],
+        config["model"],
+    )
+
+    if start is not None or end is not None:
+        indices = range(start or 0, end if end is not None else len(dataset))
+        dataset = torch.utils.data.Subset(dataset, indices)
+
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        collate_fn=_identity_collate,
         num_workers=config["inference"]["num_workers"],
         shuffle=False,
     )

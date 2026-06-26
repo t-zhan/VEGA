@@ -101,13 +101,13 @@ def _collect_tokens(dataset, indices):
         scenes = [dataset.dataset.scenes[full_indices[i]] for i in indices]
     else:
         scenes = [dataset.scenes[i] for i in indices]
-    return [Path(scene_path).stem for scene_path, _ in scenes]
+    return [Path(scene[0] if isinstance(scene, tuple) else scene).stem for scene in scenes]
 
 
 def main():
     args = parse_args()
 
-    from loaders import load_autovla, load_dataloader
+    from loaders import load_autovla, load_dataloader, load_prompt_dataloader
     from embedding import extract_static, extract_hidden, extract_autoregressive
 
     print(f"[1/4] Loading model from checkpoint: {args.ckpt}")
@@ -119,14 +119,15 @@ def main():
     print(f"      shape: {first_embed.shape}")
 
     print(f"[3/4] Building dataloader (split={args.split})")
-    dataloader = load_dataloader(args.config, split=args.split, batch_size=args.batch_size,
-                                 start=args.start, end=args.end)
+    load_fn = load_prompt_dataloader if args.mode == "autoregressive" else load_dataloader
+    dataloader = load_fn(args.config, split=args.split, batch_size=args.batch_size,
+                         start=args.start, end=args.end)
     print(f"      {len(dataloader.dataset)} samples")
 
     if args.mode == "autoregressive":
         print(f"[4/4] Extracting last-layer hidden states (autoregressive generation)")
         token_ids, last_hidden, text_tids, text_hidden, kept_idx = extract_autoregressive(
-            model.vlm, dataloader, action_start_id=action_start_id, device=args.device,
+            model, dataloader, action_start_id=action_start_id, device=args.device,
             tokenizer=model.processor.tokenizer, T_text=args.T_text,
         )
     else:

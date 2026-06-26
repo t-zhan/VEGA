@@ -220,6 +220,10 @@ def _iso_sample_worker(sample):
     return _iso(sample)
 
 
+def _d_stim_sample_worker(sample):
+    return _d_stim(sample)
+
+
 def _spawn_map(worker, samples, count, processes, threads, desc, chunksize=1):
     with ProcessPoolExecutor(
         max_workers=processes,
@@ -320,6 +324,18 @@ def _per_sample_hidden(hidden, metric, processes, threads, desc, iso_threads):
                 desc,
             )
         )
+    if metric is _d_stim:
+        samples = (np.ascontiguousarray(sample) for sample in hidden)
+        return _summary(
+            _spawn_map(
+                _d_stim_sample_worker,
+                samples,
+                len(hidden),
+                processes,
+                threads,
+                desc,
+            )
+        )
     _STATE.clear()
     _STATE.update(hidden=hidden, metric=metric, threads=threads)
     return _summary(_pool_map(_hidden_worker, len(hidden), processes, threads, desc))
@@ -340,6 +356,20 @@ def _per_sample_first(
                 len(token_ids),
                 processes,
                 iso_threads,
+                desc,
+            )
+        )
+    if metric is _d_stim:
+        samples = (
+            np.ascontiguousarray(embedding[ids - offset]) for ids in token_ids
+        )
+        return _summary(
+            _spawn_map(
+                _d_stim_sample_worker,
+                samples,
+                len(token_ids),
+                processes,
+                threads,
                 desc,
             )
         )
@@ -461,22 +491,15 @@ def _save_results(results, path):
 
 
 def _h5_tag_parts(h5):
-    suffix = "-action_text_embeddings.h5"
-    name = Path(h5).name
-    if not name.endswith(suffix):
-        raise ValueError(f"Unexpected h5 filename: {name}")
+    tokens = Path(h5).stem.split("-")
 
-    tokens = name[: -len(suffix)].split("-")
-    parts = []
-    split = next((token for token in tokens if token in ("train", "val")), None)
-    mode = next((token for token in tokens if token == "autoregressive"), None)
-    epoch = next((token for token in tokens if token.startswith("epoch_")), None)
-    loss = next((token for token in tokens if token.startswith("loss_")), None)
+    # drop suffix noise (anything containing "embeddings")
+    tokens = [t for t in tokens if "embeddings" not in t]
 
-    for token in (split, mode, epoch, loss):
-        if token is not None:
-            parts.append(token)
-    return parts
+    structural = [t for t in tokens if t in ("train", "val") or t.startswith(("epoch_", "loss_"))]
+    mode = [t for t in tokens if not (t in ("train", "val") or t.startswith(("epoch_", "loss_")))]
+
+    return structural + (["-".join(mode)] if mode else [])
 
 
 def _tagged_output_path(output, h5):
